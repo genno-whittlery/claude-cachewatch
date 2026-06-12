@@ -55,6 +55,8 @@ Then merge this key into `~/.claude/settings.json` (keep your existing settings 
 
 `refreshInterval` is the undersung half of this: by default the status line only re-renders on conversation events, so a countdown would freeze between messages. With it, the harness re-runs the script every second and the timer ticks while you think.
 
+If you run multiple `CLAUDE_CONFIG_DIR` profiles (separate logins), merge the `statusLine` block into **each profile's** `settings.json` — status-line config isn't shared between profiles. The script itself needs installing only once: the `command` path above is absolute, so every profile can point at the same file, and the timer's per-session state files don't care which profile a session belongs to.
+
 **Fleet view** (Python ≥ 3.9, no dependencies):
 
 ```bash
