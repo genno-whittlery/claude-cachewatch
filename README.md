@@ -21,6 +21,19 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
 
 ## Install
 
+The easiest installer is Claude Code itself — paste this into a session:
+
+> Install claude-cachewatch from https://github.com/genno-whittlery/claude-cachewatch — follow the README's install steps and agent notes. If I already have a custom status line, ask before replacing it.
+
+### Notes for the installing agent
+
+- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead (the cache logic is the self-contained block between the `prompt-cache TTL` comment and the final `printf`).
+- The settings change is a **merge, not an overwrite**: add/update only the `statusLine` key (including `"refreshInterval": 1`) and leave every other key in `settings.json` untouched.
+- `cachewatch.py` → `~/.claude/scripts/cachewatch.py`; `commands/cachewatch.md` → `~/.claude/commands/cachewatch.md`.
+- Verify before reporting success: pipe a fake payload through the statusline (`printf '{"session_id":"t","model":{"display_name":"X"},"context_window":{"used_percentage":10,"context_window_size":1000000,"total_input_tokens":100000},"cost":{"total_api_duration_ms":1}}' | bash ~/.claude/statusline.sh` should print a bar and `⏱ 300s`) and run `python3 ~/.claude/scripts/cachewatch.py --hours 1` (should list the current session as warm). The live status line picks up `refreshInterval` at next session start if it doesn't tick immediately.
+
+### Manual install
+
 **Status line** (requires `jq`):
 
 ```bash
