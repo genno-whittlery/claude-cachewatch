@@ -63,8 +63,20 @@ What to actually do with the timer:
 4. **Long single commands kill the cache silently.** One 20-minute build inside one Bash call means zero API calls for 20 minutes — the session looks busy, but the next turn is cold. Backgrounding long jobs keeps the agent making calls (and the cache warm) while the work runs.
 5. **Subagents don't keep the parent warm.** Each subagent is its own conversation with its own cache. While the parent waits on a >5-minute agent run, the parent's own timer counts down honestly — expect one cold read when it resumes. Usually still worth it: the subagent did its heavy reading in its *own* context, which is the bigger saving.
 6. **Pick a side of the cliff for polling loops.** Poll under ~270 s to stay warm, or commit to long sleeps (20–30 min) and pay one cold read per wake. Polling at ~300 s is the worst of both worlds.
-7. **`/compact` starts a new prefix.** The next turn after compaction is a full cache write no matter how warm you were. Compact because you need the room, not reflexively.
+7. **`/compact` starts a new prefix.** The next turn after compaction is a full cache write no matter how warm you were — but compaction has its own cache economics; see below.
 8. **When juggling sessions, answer the warmest first.** That's why `cachewatch` sorts the way it does.
+
+### Compaction tips
+
+`/compact` interacts with the cache more than you'd expect:
+
+- **Compact while the timer is green.** The summarization pass is itself an API call carrying your whole conversation — fired inside the 5-minute window it reads your context at the cached rate; fired at a long-cold session it's a full-price read of everything. The end of a work arc, timer still ticking: that's the cheap moment.
+- **…but finish your follow-ups first.** Once compacted, the model works from a summary instead of the verbatim history — anything you ask afterwards is answered from compressed memory. Cheap warm turns *before* the compact get the full-fidelity context; spend them, then compact.
+- **Compact at task boundaries, and beat auto-compact to it.** A manual compact between tasks summarizes a *finished* arc, when nothing in flight is load-bearing. Auto-compact fires on a threshold, which by definition is mid-something.
+- **Sometimes the right compact is a new session.** If the next piece of work is a different topic, a fresh session starts from a tiny prefix and the old session stays intact for reference — `cachewatch` keeps both on the board.
+- **Compaction is an investment, not a discount.** You pay one summarize pass now so that every later turn re-reads a smaller prefix. It pays off if the session keeps going; it's wasted on a session you're about to abandon.
+
+(Right after a compact, the harness briefly reports a null context window — the status line handles this; the bar resets and rebuilds on the next turn.)
 
 ## How it works
 
