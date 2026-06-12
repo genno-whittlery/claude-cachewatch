@@ -6,7 +6,7 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
 
 ## Pieces
 
-- **`statusline.sh`** — a Claude Code status line: model, context-usage bar, and a live `⏱ 287s` countdown to cache expiry that ticks every second and resets whenever the session makes an API call. Shows `cache cold` once the window lapses.
+- **`statusline.sh`** — a Claude Code status line: model, context-usage bar, and a live `⏱ 287s` countdown to cache expiry that ticks every second and resets whenever the session makes an API call. Shows `⏱ cache cold` once the window lapses.
 
   `Fable 5  ████░░░░░░░░░░ 31%  ·  310k/1.0M  ·  ⏱ 287s`
 
@@ -17,6 +17,7 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
   ⏱ 292s warm       7s  proj-puzzle-platform  e811ebbe  sure. do it
   ⏱  93s warm    3m26s  proj-kerra            3ca749dc  go
   cold            5m12s  proj-kerra            5f4d8a8f  ok
+  2 warm / 3 shown · TTL 300s · mtime proxy (warm may be optimistic)
   ```
 
 ## Install
@@ -27,10 +28,10 @@ The easiest installer is Claude Code itself — paste this into a session:
 
 ### Notes for the installing agent
 
-- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead (the cache logic is the self-contained block between the `prompt-cache TTL` comment and the final `printf`).
+- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead — that's the block between the `prompt-cache TTL` comment and the final `printf`, plus its inputs: `sid`, `used`, `apims`, and `transcript` from the statusline JSON, and the `dim`/`rst` color variables.
 - The settings change is a **merge, not an overwrite**: add/update only the `statusLine` key (including `"refreshInterval": 1`) and leave every other key in `settings.json` untouched.
 - `cachewatch.py` → `~/.claude/scripts/cachewatch.py`; `commands/cachewatch.md` → `~/.claude/commands/cachewatch.md`.
-- Verify before reporting success: pipe a fake payload through the statusline (`printf '{"session_id":"t","model":{"display_name":"X"},"context_window":{"used_percentage":10,"context_window_size":1000000,"total_input_tokens":100000},"cost":{"total_api_duration_ms":1}}' | bash ~/.claude/statusline.sh` should print a bar and `⏱ 300s`) and run `python3 ~/.claude/scripts/cachewatch.py --hours 1` (should list the current session as warm). The live status line picks up `refreshInterval` at next session start if it doesn't tick immediately.
+- Verify before reporting success: pipe a fake payload through the statusline (`printf '{"session_id":"t","model":{"display_name":"X"},"context_window":{"used_percentage":10,"context_window_size":1000000,"total_input_tokens":100000},"cost":{"total_api_duration_ms":1}}' | bash ~/.claude/statusline.sh` should print a bar and `⏱ 300s` — on the first run; reruns with the same payload show a lower number because the state file persists) and run `python3 ~/.claude/scripts/cachewatch.py --hours 1` (should list the current session as warm). The live status line picks up `refreshInterval` at next session start if it doesn't tick immediately.
 
 ### Manual install
 
@@ -40,7 +41,7 @@ The easiest installer is Claude Code itself — paste this into a session:
 cp statusline.sh ~/.claude/statusline.sh && chmod +x ~/.claude/statusline.sh
 ```
 
-Then in `~/.claude/settings.json`:
+Then merge this key into `~/.claude/settings.json` (keep your existing settings — don't replace the whole file):
 
 ```json
 {
@@ -54,10 +55,10 @@ Then in `~/.claude/settings.json`:
 
 `refreshInterval` is the undersung half of this: by default the status line only re-renders on conversation events, so a countdown would freeze between messages. With it, the harness re-runs the script every second and the timer ticks while you think.
 
-**Fleet view** (Python ≥ 3.10, no dependencies):
+**Fleet view** (Python ≥ 3.9, no dependencies):
 
 ```bash
-cp cachewatch.py ~/.claude/scripts/cachewatch.py
+mkdir -p ~/.claude/scripts && cp cachewatch.py ~/.claude/scripts/cachewatch.py
 python3 ~/.claude/scripts/cachewatch.py            # active in last 24h, one shot
 python3 ~/.claude/scripts/cachewatch.py --watch    # live dashboard, 1 s refresh — run it in a spare tmux/zellij pane
 python3 ~/.claude/scripts/cachewatch.py --hours 6  # narrower window
@@ -67,7 +68,7 @@ python3 ~/.claude/scripts/cachewatch.py --all      # everything ever
 Optionally install the included slash-command wrapper so `/cachewatch` works inside a session:
 
 ```bash
-cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
+mkdir -p ~/.claude/commands && cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
 ```
 
 ## Token-saving tips
@@ -114,7 +115,7 @@ The obvious signal is the session transcript (`~/.claude/projects/<dir>/<uuid>.j
 
 So `statusline.sh` uses both, taking whichever is fresher:
 
-- **Activity fingerprint** — `total_input_tokens:total_api_duration_ms` is compared between renders via a tiny state file (`$TMPDIR/claude-cache-timer/<session_id>`). Changed fingerprint = API call happening right now = timer resets to 300 live.
+- **Activity fingerprint** — `total_input_tokens:total_api_duration_ms` is compared between renders via a tiny per-user state file (`$TMPDIR/claude-cache-timer-<uid>/<session_id>`, pruned after a day). Changed fingerprint = API call happening right now = timer resets to 300 live.
 - **Transcript mtime** — the floor that covers fresh sessions before a state file exists.
 
 `cachewatch.py` is read-only across all sessions, so it uses pure mtime, deduplicates sessions that appear under two project-dir encodings (e.g. a `/home → /Users` symlink), excludes `agent-*.jsonl` subagent transcripts, and pulls each session's label from a 64 KB tail-read of the JSONL — cheap even on multi-hundred-MB transcripts.
@@ -128,7 +129,7 @@ So `statusline.sh` uses both, taking whichever is fresher:
 
 ## Requirements
 
-macOS or Linux. `jq` for the status line; Python ≥ 3.10 for `cachewatch.py`. Tested against Claude Code's statusline JSON as of June 2026 — field names may drift in future versions.
+macOS or Linux. `jq` for the status line; Python ≥ 3.9 for `cachewatch.py`. Tested against Claude Code's statusline JSON as of June 2026 — field names may drift in future versions.
 
 ## License
 

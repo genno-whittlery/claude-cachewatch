@@ -30,7 +30,8 @@ IFS=$'\t' read -r model pct size used transcript sid apims < <(
     ] | @tsv' <<<"$input"
 )
 
-# integer percent (strip any decimal)
+# integer-ize numeric fields (the API may send fractional values)
+used=${used%%.*}; size=${size%%.*}; apims=${apims%%.*}
 pct_i=${pct%.*}; pct_i=${pct_i:-0}
 (( pct_i < 0 )) && pct_i=0
 (( pct_i > 100 )) && pct_i=100
@@ -47,7 +48,7 @@ hum() {
 # --- progress bar (14 cells) ------------------------------------------------
 cells=14
 filled=$(( pct_i * cells / 100 ))
-(( filled > cells )) && filled=cells
+(( filled > cells )) && filled=$cells
 empty=$(( cells - filled ))
 bar=""
 for ((i=0; i<filled; i++)); do bar+="█"; done
@@ -80,14 +81,17 @@ cache=""
 now=$(date +%s)
 last=0
 if [[ -n "$sid" ]]; then
-  state_dir="${TMPDIR:-/tmp}/claude-cache-timer"
+  # per-user dir: /tmp is shared on Linux, and old session files should not pile up
+  state_dir="${TMPDIR:-/tmp}/claude-cache-timer-${UID:-$(id -u)}"
   mkdir -p "$state_dir" 2>/dev/null
   sf="$state_dir/$sid"
   fp="${used}:${apims}"
   prev_fp=""; prev_ts=0
   [[ -f "$sf" ]] && read -r prev_fp prev_ts < "$sf"
   if [[ "$fp" != "$prev_fp" ]]; then
-    printf '%s %s\n' "$fp" "$now" > "$sf"
+    # write-then-rename: a concurrent render must never read a partial file
+    printf '%s %s\n' "$fp" "$now" > "$sf.$$" && mv -f "$sf.$$" "$sf"
+    find "$state_dir" -type f -mtime +1 -delete 2>/dev/null
     last=$now
   else
     last=${prev_ts:-0}

@@ -17,6 +17,8 @@ Usage:
   cachewatch.py --watch    live view, refreshes every second (run in a pane)
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -45,13 +47,17 @@ def humanize(secs: float) -> str:
 def session_label(path: Path) -> str:
     """Best-effort label from the transcript tail: last user prompt, else slug."""
     try:
+        size = path.stat().st_size
         with path.open("rb") as f:
-            f.seek(max(0, path.stat().st_size - TAIL_BYTES))
+            f.seek(max(0, size - TAIL_BYTES))
             tail = f.read()
     except OSError:
         return ""
+    lines = tail.split(b"\n")
+    if size > TAIL_BYTES:
+        lines = lines[1:]  # first line is mid-record when we seeked into the file
     prompt, slug = "", ""
-    for line in tail.split(b"\n")[1:]:
+    for line in lines:
         line = line.strip()
         if not line:
             continue
@@ -63,27 +69,32 @@ def session_label(path: Path) -> str:
             prompt = str(d["lastPrompt"])
         if d.get("slug"):
             slug = str(d["slug"])
-    label = prompt or slug
-    return " ".join(label.split())
+    label = " ".join((prompt or slug).split())
+    # prompts are untrusted text headed for a terminal — strip control chars
+    return "".join(c for c in label if c.isprintable())
 
 
 def scan(max_age_s: float | None):
     now = time.time()
-    rows = []
-    seen = set()  # same session can appear under two project-dir encodings (/Users vs /home symlink)
-    for jsonl in sorted(PROJECTS.glob("*/*.jsonl")):
-        if jsonl.name.startswith("agent-") or jsonl.stem in seen:
+    best = {}  # same session can appear under two project-dir encodings (/Users vs /home symlink); keep freshest
+    for jsonl in PROJECTS.glob("*/*.jsonl"):
+        if jsonl.name.startswith("agent-"):
             continue
-        seen.add(jsonl.stem)
         try:
             mtime = jsonl.stat().st_mtime
         except OSError:
             continue
+        prev = best.get(jsonl.stem)
+        if prev is not None and prev[0] >= mtime:
+            continue
+        best[jsonl.stem] = (mtime, jsonl)
+    rows = []
+    for stem, (mtime, jsonl) in best.items():
         idle = now - mtime
         if max_age_s is not None and idle > max_age_s:
             continue
         project = jsonl.parent.name.removeprefix(HOME_ENC).lstrip("-")
-        rows.append((idle, project, jsonl.stem[:8], jsonl))
+        rows.append((idle, project, stem[:8], jsonl, mtime))
     rows.sort(key=lambda r: r[0])
     return rows
 
@@ -91,7 +102,7 @@ def scan(max_age_s: float | None):
 def render(rows, labels: dict) -> str:
     out = [f"{BOLD}{'CACHE':<12} {'IDLE':>8}  {'PROJECT':<28} {'SESSION':<9} LAST PROMPT{RST}"]
     warm = 0
-    for idle, project, sid, path in rows:
+    for idle, project, sid, path, mtime in rows:
         left = TTL - idle
         if left > 0:
             warm += 1
@@ -99,7 +110,11 @@ def render(rows, labels: dict) -> str:
             state = f"{col}⏱ {int(left):>3}s warm{RST}"
         else:
             state = f"{DIM}cold{RST}        "
-        label = labels.setdefault(path, session_label(path))[:60]
+        cached = labels.get(path)
+        if cached is None or cached[0] != mtime:  # re-read label when the transcript changed
+            cached = (mtime, session_label(path))
+            labels[path] = cached
+        label = cached[1][:60]
         out.append(f"{state} {humanize(idle):>8}  {project:<28.28} {sid:<9} {DIM}{label}{RST}")
     out.append(f"{DIM}{warm} warm / {len(rows)} shown · TTL {TTL}s · mtime proxy (warm may be optimistic){RST}")
     return "\n".join(out)
