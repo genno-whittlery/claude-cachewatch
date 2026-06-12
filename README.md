@@ -80,9 +80,10 @@ What to actually do with the timer:
 3. **It's a cliff, not a slope.** 4 minutes idle costs nothing extra; 6 minutes costs a full re-read — and 6 minutes costs exactly the same as 6 hours. If you've already missed the window, stop hurrying.
 4. **Long single commands kill the cache silently.** One 20-minute build inside one Bash call means zero API calls for 20 minutes — the session looks busy, but the next turn is cold. Backgrounding long jobs keeps the agent making calls (and the cache warm) while the work runs.
 5. **Subagents don't keep the parent warm.** Each subagent is its own conversation with its own cache. While the parent waits on a >5-minute agent run, the parent's own timer counts down honestly — expect one cold read when it resumes. Usually still worth it: the subagent did its heavy reading in its *own* context, which is the bigger saving.
-6. **Pick a side of the cliff for polling loops.** Poll under ~270 s to stay warm, or commit to long sleeps (20–30 min) and pay one cold read per wake. Polling at ~300 s is the worst of both worlds.
-7. **`/compact` starts a new prefix.** The next turn after compaction is a full cache write no matter how warm you were — but compaction has its own cache economics; see below.
-8. **When juggling sessions, answer the warmest first.** That's why `cachewatch` sorts the way it does.
+6. **…unless the parent checks in every ~3 minutes.** Run long agents in the background and have the parent schedule a wakeup or status check at ~180 s intervals until they finish. Each check-in is a tiny *cached* API call that resets the parent's window, so the resume is warm instead of a full re-read. 180 s leaves comfortable margin inside the 5-minute TTL for scheduling jitter.
+7. **Pick a side of the cliff for polling loops.** Poll under ~270 s to stay warm, or commit to long sleeps (20–30 min) and pay one cold read per wake. Polling at ~300 s is the worst of both worlds.
+8. **`/compact` starts a new prefix.** The next turn after compaction is a full cache write no matter how warm you were — but compaction has its own cache economics; see below.
+9. **When juggling sessions, answer the warmest first.** That's why `cachewatch` sorts the way it does.
 
 ### Compaction tips
 
