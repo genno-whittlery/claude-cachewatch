@@ -6,7 +6,7 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
 
 ## Pieces
 
-- **`statusline.sh`** — a Claude Code status line: model, context-usage bar, and a live `⏱ 287s` countdown to cache expiry that ticks every second and resets whenever the session makes an API call. Shows `⏱ cache cold` once the window lapses.
+- **`statusline.sh`** — a Claude Code status line: model, context-usage bar, and a live `⏱ 287s` countdown to cache expiry that ticks every second and resets whenever the session makes an API call. Shows `⏱ cache cold` once the window lapses, and `⏱ fresh` when no cached prefix exists yet (new session, or right after `/compact`) — a moment when a countdown would be fiction.
 
   `Fable 5  ████░░░░░░░░░░ 31%  ·  310k/1.0M  ·  ⏱ 287s`
 
@@ -96,7 +96,7 @@ What to actually do with the timer:
 - **Sometimes the right compact is a new session.** If the next piece of work is a different topic, a fresh session starts from a tiny prefix and the old session stays intact for reference — `cachewatch` keeps both on the board.
 - **Compaction is an investment, not a discount.** You pay one summarize pass now so that every later turn re-reads a smaller prefix. It pays off if the session keeps going; it's wasted on a session you're about to abandon.
 
-(Right after a compact, the harness briefly reports a null context window — the status line handles this; the bar resets and rebuilds on the next turn.)
+(Right after a compact, the harness reports a null context window — the status line shows this as `⏱ fresh`; the bar and a real countdown rebuild on the next turn.)
 
 ## The numbers (verified against Anthropic's docs)
 
@@ -127,7 +127,7 @@ So `statusline.sh` uses both, taking whichever is fresher:
 - The errors are asymmetric in a useful direction: harness bookkeeping records (mode toggles, prompt drafts) touch the transcript without an API call, so **"warm" can be slightly optimistic** — but a false warm costs you nothing you weren't already paying. **"cold" is always real.**
 - In `cachewatch`, a session that's mid-turn can read more stale than it is (buffered writes). It also isn't waiting for your reply, so the misread is harmless.
 - The subagent behavior from tip 5 is visible in the status line: the parent's timer keeps counting down during an agent run. That's not a bug — the parent's cache really is cooling.
-- **`/compact` confuses the timer in both directions, harmlessly.** While the summarize pass runs, the timer doesn't reset (the counters it fingerprints update on call completion, and transcript writes are buffered) — but the cached read it was there to confirm already happened when you fired the compact. Then once it resets, the green is hollow for exactly one turn: the warmth belongs to the prefix you just discarded, and your next message writes the new (much smaller) prefix regardless. From the second post-compact turn on, the timer is honest again.
+- **`/compact` blinds the timer while it runs, harmlessly.** During the summarize pass the countdown goes stale — the counters it fingerprints only update on call completion, and there is no observable signal at compact *start* — but the cached read the timer was there to confirm already happened the moment you fired the compact. Once the compact lands, the display switches to `⏱ fresh` (no cached prefix exists for the new, post-summary conversation) rather than a hollow green countdown, and a real countdown resumes on your first new-prefix turn.
 - The 5-minute TTL is the standard Anthropic tier, hardcoded as `TTL = 300`. (The API also has a 1-hour tier; Claude Code doesn't use it.)
 
 ## Requirements

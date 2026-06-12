@@ -101,7 +101,12 @@ if [[ -n "$transcript" && -f "$transcript" ]]; then
   mtime=$(stat -f %m "$transcript" 2>/dev/null || stat -c %Y "$transcript" 2>/dev/null || echo 0)
   (( mtime > last )) && last=$mtime
 fi
-if (( last > 0 )); then
+if (( used == 0 )); then
+  # null/zero context = new session or just-compacted: no cached prefix exists
+  # yet, so a countdown would be fiction — the next call is a (small) write
+  # whenever it happens. Distinct state instead of a hollow green 300s.
+  cache="${dim}  ·  ⏱ fresh${rst}"
+elif (( last > 0 )); then
   left=$(( last + 300 - now ))
   if (( left > 0 )); then
     ccol=$'\033[32m'; (( left < 60 )) && ccol=$'\033[33m'
