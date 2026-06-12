@@ -57,7 +57,7 @@ Optionally wrap it as a slash command at `~/.claude/commands/cachewatch.md` so `
 
 What to actually do with the timer:
 
-1. **Reply while warm.** Cached input is roughly 10× cheaper than fresh input. A follow-up inside the window re-reads your whole conversation at the cached rate; a cold one pays full price *plus* a fresh cache write (1.25×).
+1. **Reply while warm.** Cached input is 10× cheaper than fresh input (0.1× vs 1×). A follow-up inside the window re-reads your whole conversation at the cached rate; a cold one re-processes everything at the 1.25× cache-write rate.
 2. **Batch your follow-ups.** Three quick questions inside one warm window cost a fraction of the same three questions spread across hours.
 3. **It's a cliff, not a slope.** 4 minutes idle costs nothing extra; 6 minutes costs a full re-read — and 6 minutes costs exactly the same as 6 hours. If you've already missed the window, stop hurrying.
 4. **Long single commands kill the cache silently.** One 20-minute build inside one Bash call means zero API calls for 20 minutes — the session looks busy, but the next turn is cold. Backgrounding long jobs keeps the agent making calls (and the cache warm) while the work runs.
@@ -77,6 +77,17 @@ What to actually do with the timer:
 - **Compaction is an investment, not a discount.** You pay one summarize pass now so that every later turn re-reads a smaller prefix. It pays off if the session keeps going; it's wasted on a session you're about to abandon.
 
 (Right after a compact, the harness briefly reports a null context window — the status line handles this; the bar resets and rebuilds on the next turn.)
+
+## The numbers (verified against Anthropic's docs)
+
+Fact-checked June 2026 against the official [prompt caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching):
+
+- **The TTL is a sliding window, and refreshing it is free.** Quoting the docs: *"The cache is refreshed for no additional cost each time the cached content is used."* Every API call that reads the cache pushes expiry another 5 minutes out — which is why an actively-working session never goes cold, and why this tool only measures *gaps*.
+- **Reads cost 0.1× the base input-token price; writes cost 1.25×** (5-minute tier) or **2×** (1-hour tier). Reads are priced the same on both tiers.
+- **Break-even is immediate.** On the 5-minute tier, caching pays for itself on the second request (1.25× + 0.1× = 1.35× vs 2× uncached). The 1-hour tier needs at least three requests (2× + 0.2× vs 3×).
+- **A 1-hour tier exists** (`cache_control: {type: "ephemeral", ttl: "1h"}`) — built for exactly the long-gap pattern these tools make visible — but Claude Code uses the 5-minute tier, hence `TTL = 300` here.
+- **Minimum cacheable prefix is model-dependent** (roughly 512–4096 tokens; below it, prompts silently don't cache). Irrelevant for Claude Code sessions, which exceed it within the first turn.
+- **A cache entry becomes readable only after the first response begins.** N parallel requests with an identical prefix all pay full price — none can read what the others are still writing.
 
 ## How it works
 
