@@ -127,6 +127,7 @@ So `statusline.sh` uses both, taking whichever is fresher:
 - The errors are asymmetric in a useful direction: harness bookkeeping records (mode toggles, prompt drafts) touch the transcript without an API call, so **"warm" can be slightly optimistic** — but a false warm costs you nothing you weren't already paying. **"cold" is always real.**
 - In `cachewatch`, a session that's mid-turn can read more stale than it is (buffered writes). It also isn't waiting for your reply, so the misread is harmless.
 - The subagent behavior from tip 5 is visible in the status line: the parent's timer keeps counting down during an agent run. That's not a bug — the parent's cache really is cooling.
+- **`/compact` confuses the timer in both directions, harmlessly.** While the summarize pass runs, the timer doesn't reset (the counters it fingerprints update on call completion, and transcript writes are buffered) — but the cached read it was there to confirm already happened when you fired the compact. Then once it resets, the green is hollow for exactly one turn: the warmth belongs to the prefix you just discarded, and your next message writes the new (much smaller) prefix regardless. From the second post-compact turn on, the timer is honest again.
 - The 5-minute TTL is the standard Anthropic tier, hardcoded as `TTL = 300`. (The API also has a 1-hour tier; Claude Code doesn't use it.)
 
 ## Requirements
