@@ -51,7 +51,11 @@ python3 ~/.claude/scripts/cachewatch.py --hours 6  # narrower window
 python3 ~/.claude/scripts/cachewatch.py --all      # everything ever
 ```
 
-Optionally wrap it as a slash command at `~/.claude/commands/cachewatch.md` so `/cachewatch` works inside a session.
+Optionally install the included slash-command wrapper so `/cachewatch` works inside a session:
+
+```bash
+cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
+```
 
 ## Token-saving tips
 
