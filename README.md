@@ -84,6 +84,7 @@ What to actually do with the timer:
 7. **Pick a side of the cliff for polling loops.** Poll under ~270 s to stay warm, or commit to long sleeps (20–30 min) and pay one cold read per wake. Polling at ~300 s is the worst of both worlds.
 8. **`/compact` starts a new prefix.** The next turn after compaction is a full cache write no matter how warm you were — but compaction has its own cache economics; see below.
 9. **When juggling sessions, answer the warmest first.** That's why `cachewatch` sorts the way it does.
+10. **Simplify your memory files.** `CLAUDE.md` and auto-memory indexes load into the prompt prefix of *every* session — each line there is re-tokenized on every cache write and every cold read, in every conversation, forever. They're the most expensive prose you own. Keep index entries to one line with a pointer, move detail into topic files the agent reads on demand, and prune entries that stopped earning their keep.
 
 ### Compaction tips
 
