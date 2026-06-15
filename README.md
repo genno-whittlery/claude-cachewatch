@@ -98,7 +98,7 @@ What to actually do with the timer:
 - **Sometimes the right compact is a new session.** If the next piece of work is a different topic, a fresh session starts from a tiny prefix and the old session stays intact for reference — `cachewatch` keeps both on the board.
 - **Compaction is an investment, not a discount.** You pay one summarize pass now so that every later turn re-reads a smaller prefix. It pays off if the session keeps going; it's wasted on a session you're about to abandon.
 
-(Right after a compact, the harness reports a null context window — the status line shows this as `⏱ fresh`; the bar and a real countdown rebuild on the next turn.)
+(Right after a compact, the harness reports a null context window — the status line shows this as `0%` and `⏱ fresh`; the bar and a real countdown rebuild on the next turn. **Resuming** carries the same rule: resume a normal session and the bar shows its real context immediately, but resume one whose latest state is a `/compact` and you'll see `0%` until your first new turn. Both are expected — the `0` is the post-compact null window, not a broken status line.)
 
 ## The numbers (verified against Anthropic's docs)
 
