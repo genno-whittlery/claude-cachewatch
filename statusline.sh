@@ -76,7 +76,7 @@ fi
 # locally (the bridge id is server-side), so show an honest pending state; it
 # self-corrects to real numbers on the first message.
 if (( used == 0 )) && [[ -n "$transcript" && -f "$transcript" ]] \
-   && grep -Eq '"type":[[:space:]]*"bridge-session"' "$transcript" 2>/dev/null; then
+   && grep -q '"type":"bridge-session"' "$transcript" 2>/dev/null; then
   printf '%s%s%s  %s⏳ resumed · context pending (loads on first message)%s' \
     "$bold" "$model" "$rst" "$dim" "$rst"
   exit 0
