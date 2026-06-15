@@ -20,6 +20,16 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
   2 warm / 3 shown · TTL 300s · mtime proxy (warm may be optimistic)
   ```
 
+- **`agents.py`** — a denser one-line-per-session dashboard that builds on the same scan. Beyond warm/cold it shows a per-session **state glyph** (`*` active / `>` running a tool / `o` waiting on you / `.` idle), a live **CD** countdown read from the same state file the status line uses, a count of that session's **live subagents**, and the session's name (from a `/tab` label if you have one, else the slug). Width-aware so it fits a narrow pane:
+
+  ```
+  S  CD # NAME           | DOING
+  * 298 . warm-meander   | Bash: python3 .claude/scripts/agents.py
+  > 288 1 modular-sing   | Agent: draft the implementation plan
+  o   c . signy          | how to exit
+  2 active - 15 shown - *active >running owaiting .idle - CD=cache secs/c=cold
+  ```
+
 ## Install
 
 The easiest installer is Claude Code itself — paste this into a session:
@@ -28,9 +38,10 @@ The easiest installer is Claude Code itself — paste this into a session:
 
 ### Notes for the installing agent
 
-- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead — that's the block between the `prompt-cache TTL` comment and the final `printf`, plus its inputs: `sid`, `used`, `apims`, and `transcript` from the statusline JSON, and the `dim`/`rst` color variables.
+- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead — that's the block between the `prompt-cache TTL` comment and the final `printf`, plus its inputs: `sid`, `used`, `apims`, `transcript`, and `cwd` from the statusline JSON, and the `dim`/`rst` color variables. (`cwd` is only used by the optional expiry-notification sub-block to find a `/tab` session label.)
 - The settings change is a **merge, not an overwrite**: add/update only the `statusLine` key (including `"refreshInterval": 1`) and leave every other key in `settings.json` untouched.
-- `cachewatch.py` → `~/.claude/scripts/cachewatch.py`; `commands/cachewatch.md` → `~/.claude/commands/cachewatch.md`.
+- `cachewatch.py` → `~/.claude/scripts/cachewatch.py`; `commands/cachewatch.md` → `~/.claude/commands/cachewatch.md`. Optionally `agents.py` → `~/.claude/scripts/agents.py` and `commands/agents.md` → `~/.claude/commands/agents.md` for the denser dashboard.
+- **Never commit the user's notify token.** The optional expiry-push feature reads `~/.config/cache-notify/env`; that file holds the Telegram bot token and chat id and must stay out of any repo (it lives under `~/.config`, not here). `statusline.sh` only references the variables, never the values.
 - Verify before reporting success: pipe a fake payload through the statusline (`printf '{"session_id":"t","model":{"display_name":"X"},"context_window":{"used_percentage":10,"context_window_size":1000000,"total_input_tokens":100000},"cost":{"total_api_duration_ms":1}}' | bash ~/.claude/statusline.sh` should print a bar and `⏱ 300s` — on the first run; reruns with the same payload show a lower number because the state file persists) and run `python3 ~/.claude/scripts/cachewatch.py --hours 1` (should list the current session as warm). The live status line picks up `refreshInterval` at next session start if it doesn't tick immediately.
 
 ### Manual install
@@ -67,11 +78,37 @@ python3 ~/.claude/scripts/cachewatch.py --hours 6  # narrower window
 python3 ~/.claude/scripts/cachewatch.py --all      # everything ever
 ```
 
-Optionally install the included slash-command wrapper so `/cachewatch` works inside a session:
+For the denser dashboard, install `agents.py` the same way:
 
 ```bash
-mkdir -p ~/.claude/commands && cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
+cp agents.py ~/.claude/scripts/agents.py
+python3 ~/.claude/scripts/agents.py            # active in last 24h, one shot
+python3 ~/.claude/scripts/agents.py --watch    # live, 1 s refresh, in a spare pane
+python3 ~/.claude/scripts/agents.py --width 60 # force width when piped (no tty)
 ```
+
+Optionally install the slash-command wrappers so `/cachewatch` and `/agents` work inside a session:
+
+```bash
+mkdir -p ~/.claude/commands
+cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
+cp commands/agents.md ~/.claude/commands/agents.md
+```
+
+### Expiry notifications (optional)
+
+`statusline.sh` can ping you when a session's cache first drops below a threshold, so you can keep a long-running session warm without watching the bar. It's **inert until you create the config** — no file, no pings.
+
+```bash
+mkdir -p ~/.config/cache-notify && chmod 700 ~/.config/cache-notify
+cat > ~/.config/cache-notify/env <<'EOF'
+export TG_TOKEN="123456:your-telegram-bot-token"
+export TG_CHAT="your-chat-id"
+EOF
+chmod 600 ~/.config/cache-notify/env
+```
+
+This file holds a secret — keep it under `~/.config`, never in a repo. Get a bot token from [@BotFather](https://t.me/BotFather), then message your bot once and read your chat id from `https://api.telegram.org/bot<TOKEN>/getUpdates`. The threshold defaults to 180 s; override per session with `CACHE_NOTIFY_BELOW=240` (or `0` to disable). On macOS a local banner fires too. Each cache cycle notifies once, re-armed when a new turn resets the timer.
 
 ## Token-saving tips
 
