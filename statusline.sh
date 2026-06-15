@@ -67,21 +67,6 @@ if (( size > 0 )); then
   readout="${dim}  ·  $(hum "$used")/$(hum "$size")${rst}"
 fi
 
-# --- resumed-session guard ---------------------------------------------------
-# On resume, the harness reports context_window=0/null until the first API turn
-# re-measures it, so a naive render shows a misleading "0% · 0/1M · fresh". A
-# resumed transcript carries a "bridge-session" marker (a brand-new or just
-# /compact-ed session does not), so use that to distinguish "resumed, not yet
-# measured" from "genuinely empty". The true pre-resume figure isn't available
-# locally (the bridge id is server-side), so show an honest pending state; it
-# self-corrects to real numbers on the first message.
-if (( used == 0 )) && [[ -n "$transcript" && -f "$transcript" ]] \
-   && grep -q '"type":"bridge-session"' "$transcript" 2>/dev/null; then
-  printf '%s%s%s  %s⏳ resumed · context pending (loads on first message)%s' \
-    "$bold" "$model" "$rst" "$dim" "$rst"
-  exit 0
-fi
-
 # --- prompt-cache TTL --------------------------------------------------------
 # Anthropic's prompt cache expires 5 min after the last API call that touched
 # it (reads refresh the TTL too). Two proxies for "last API activity", we take
