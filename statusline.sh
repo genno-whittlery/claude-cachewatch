@@ -128,7 +128,7 @@ elif (( last > 0 )); then
         done
         # fallback to the zellij session name if /tab never wrote a sidecar
         [[ -z "$tab" ]] && tab="${ZELLIJ_SESSION_NAME:-}"
-        msg="${tab:+[$tab] }Claude cache expires in ${left}s — type something to keep it warm"
+        msg="${tab:+[$tab] }Claude cache expires in ${left}s"
         # iPhone push via Telegram bot. Config: ~/.config/cache-notify/env (mode
         # 600) defining TG_TOKEN + TG_CHAT. Backgrounded + timeboxed so a slow
         # network never stalls the 1s render. Inert until the file exists.
