@@ -24,6 +24,16 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
 
 - **`session-wait-state.py`** — a tiny hook target that powers the WAIT column. Three Claude Code hooks call it (`Stop` → waiting, `Notification` → blocked, `UserPromptSubmit` → clear); it drops a per-session sentinel next to the cache-timer state. Optionally it also pushes a **Telegram** message when a session starts waiting on you — handy when you're away from the desk.
 
+- **`agents.py`** — a denser one-line-per-session dashboard that builds on the same scan. Beyond warm/cold it shows a per-session **state glyph** (`*` active / `>` running a tool / `o` waiting on you / `.` idle), a live **CD** countdown read from the same state file the status line uses, a count of that session's **live subagents**, and the session's name (from a `/tab` label if you have one, else the slug). Width-aware so it fits a narrow pane:
+
+  ```
+  S  CD # NAME           | DOING
+  * 298 . warm-meander   | Bash: python3 .claude/scripts/agents.py
+  > 288 1 modular-sing   | Agent: draft the implementation plan
+  o   c . signy          | how to exit
+  2 active - 15 shown - *active >running owaiting .idle - CD=cache secs/c=cold
+  ```
+
 ## Install
 
 The easiest installer is Claude Code itself — paste this into a session:
@@ -32,10 +42,11 @@ The easiest installer is Claude Code itself — paste this into a session:
 
 ### Notes for the installing agent
 
-- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead — that's the block between the `prompt-cache TTL` comment and the final `printf`, plus its inputs: `sid`, `used`, `apims`, and `transcript` from the statusline JSON, and the `dim`/`rst` color variables.
+- `statusline.sh` → `~/.claude/statusline.sh`, `chmod +x`. If the user already has a `statusLine` command configured in `~/.claude/settings.json`, **ask before replacing it** — they may want the cache segment grafted into their existing script instead — that's the block between the `prompt-cache TTL` comment and the final `printf`, plus its inputs: `sid`, `used`, `apims`, `transcript`, and `cwd` from the statusline JSON, and the `dim`/`rst` color variables. (`cwd` is only used by the optional expiry-notification sub-block to find a `/tab` session label.)
 - The settings change is a **merge, not an overwrite**: add/update only the `statusLine` key (including `"refreshInterval": 1`) and leave every other key in `settings.json` untouched.
-- `cachewatch.py` → `~/.claude/scripts/cachewatch.py`; `commands/cachewatch.md` → `~/.claude/commands/cachewatch.md`.
+- `cachewatch.py` → `~/.claude/scripts/cachewatch.py`; `commands/cachewatch.md` → `~/.claude/commands/cachewatch.md`. Optionally `agents.py` → `~/.claude/scripts/agents.py` and `commands/agents.md` → `~/.claude/commands/agents.md` for the denser dashboard.
 - The WAIT column is optional. If the user wants it, also copy `session-wait-state.py` → `~/.claude/scripts/`, `chmod +x`, and merge the `Stop`/`Notification`/`UserPromptSubmit` `hooks` block (see Manual install) using **absolute** command paths. Tell them newly-added hooks load at next session start (or after opening `/hooks` once). Leave Telegram alone unless they ask — it's inert without `~/.config/cache-notify/env`.
+- **Never commit the user's notify token.** The optional push features read `~/.config/cache-notify/env`; that file holds the Telegram bot token and chat id and must stay out of any repo (it lives under `~/.config`, not here). `statusline.sh` and `session-wait-state.py` only reference the variables, never the values.
 - Verify before reporting success: pipe a fake payload through the statusline (`printf '{"session_id":"t","model":{"display_name":"X"},"context_window":{"used_percentage":10,"context_window_size":1000000,"total_input_tokens":100000},"cost":{"total_api_duration_ms":1}}' | bash ~/.claude/statusline.sh` should print a bar and `⏱ 300s` — on the first run; reruns with the same payload show a lower number because the state file persists) and run `python3 ~/.claude/scripts/cachewatch.py --hours 1` (should list the current session as warm). The live status line picks up `refreshInterval` at next session start if it doesn't tick immediately.
 
 ### Manual install
@@ -72,10 +83,21 @@ python3 ~/.claude/scripts/cachewatch.py --hours 6  # narrower window
 python3 ~/.claude/scripts/cachewatch.py --all      # everything ever
 ```
 
-Optionally install the included slash-command wrapper so `/cachewatch` works inside a session:
+For the denser dashboard, install `agents.py` the same way:
 
 ```bash
-mkdir -p ~/.claude/commands && cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
+cp agents.py ~/.claude/scripts/agents.py
+python3 ~/.claude/scripts/agents.py            # active in last 24h, one shot
+python3 ~/.claude/scripts/agents.py --watch    # live, 1 s refresh, in a spare pane
+python3 ~/.claude/scripts/agents.py --width 60 # force width when piped (no tty)
+```
+
+Optionally install the slash-command wrappers so `/cachewatch` and `/agents` work inside a session:
+
+```bash
+mkdir -p ~/.claude/commands
+cp commands/cachewatch.md ~/.claude/commands/cachewatch.md
+cp commands/agents.md ~/.claude/commands/agents.md
 ```
 
 **WAIT column** (optional — flags sessions parked on you). Install the hook target, then wire three hooks:
@@ -102,9 +124,22 @@ Merge this `hooks` block into `~/.claude/settings.json` (keep your existing sett
 }
 ```
 
-`Stop` fires when Claude finishes a turn (your move → `waiting`), `Notification` when it's stuck on a permission prompt or idle nudge (`blocked`), and `UserPromptSubmit` clears the flag when you reply. Newly-added hooks load at the next session start, or immediately if you open the `/hooks` menu once.
+`Stop` fires when Claude finishes a turn (your move → `waiting`), `Notification` when it's stuck on a permission prompt or idle nudge (`blocked`), and `UserPromptSubmit` clears the flag when you reply. Newly-added hooks load at the next session start, or immediately if you open the `/hooks` menu once. If you set up the Telegram config below, `session-wait-state.py` also pushes a message when a session starts waiting — `[tab] Claude finished — waiting for your input`, or `Claude needs you — <prompt>` when blocked. Set `CACHE_WAIT_NOTIFY=0` to silence the per-turn "waiting" pings while keeping the "blocked" permission pings.
 
-**Telegram push (optional).** If `~/.config/cache-notify/env` exists with `TG_TOKEN` and `TG_CHAT` (the same bot config the status line's cache-cold alert uses), `session-wait-state.py` also pushes a message to your phone when a session starts waiting — `[tab] Claude finished — waiting for your input`, or `Claude needs you — <prompt>` when blocked. It's inert until that file exists. Set `CACHE_WAIT_NOTIFY=0` in your environment to silence the per-turn "waiting" pings while keeping the "blocked" permission pings.
+### Expiry notifications (optional)
+
+`statusline.sh` can ping you when a session's cache first drops below a threshold, so you can keep a long-running session warm without watching the bar (and `session-wait-state.py` reuses the same config for the wait/blocked pings above). It's **inert until you create the config** — no file, no pings.
+
+```bash
+mkdir -p ~/.config/cache-notify && chmod 700 ~/.config/cache-notify
+cat > ~/.config/cache-notify/env <<'EOF'
+export TG_TOKEN="123456:your-telegram-bot-token"
+export TG_CHAT="your-chat-id"
+EOF
+chmod 600 ~/.config/cache-notify/env
+```
+
+This file holds a secret — keep it under `~/.config`, never in a repo. Get a bot token from [@BotFather](https://t.me/BotFather), then message your bot once and read your chat id from `https://api.telegram.org/bot<TOKEN>/getUpdates`. The threshold defaults to 180 s; override per session with `CACHE_NOTIFY_BELOW=240` (or `0` to disable). On macOS a local banner fires too. Each cache cycle notifies once, re-armed when a new turn resets the timer.
 
 ## Token-saving tips
 

@@ -18,7 +18,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # --- extract fields, null-safe ---------------------------------------------
-IFS=$'\t' read -r model pct size used transcript sid apims < <(
+IFS=$'\t' read -r model pct size used transcript sid apims cwd < <(
   jq -r '
     [ (.model.display_name // "Claude"),
       (.context_window.used_percentage // 0),
@@ -26,7 +26,8 @@ IFS=$'\t' read -r model pct size used transcript sid apims < <(
       (.context_window.total_input_tokens // 0),
       (.transcript_path // ""),
       (.session_id // ""),
-      (.cost.total_api_duration_ms // 0)
+      (.cost.total_api_duration_ms // 0),
+      (.workspace.current_dir // .cwd // "")
     ] | @tsv' <<<"$input"
 )
 
@@ -111,6 +112,37 @@ elif (( last > 0 )); then
   if (( left > 0 )); then
     ccol=$'\033[32m'; (( left < 60 )) && ccol=$'\033[33m'
     cache="${dim}  ·  ${rst}${ccol}⏱ ${left}s${rst}"
+    # notify once per cache cycle when the TTL first dips below the threshold
+    # (default 240s; set CACHE_NOTIFY_BELOW=0 to disable). Debounced on `last`
+    # so a new turn re-arms it but the 1s renders in-window don't re-fire.
+    notify_below=${CACHE_NOTIFY_BELOW:-180}
+    if [[ -n "$sf" ]] && (( notify_below > 0 && left < notify_below )); then
+      nf="$sf.notified"; prev_notified=""
+      [[ -f "$nf" ]] && read -r prev_notified < "$nf"
+      if [[ "$prev_notified" != "$last" ]]; then
+        printf '%s\n' "$last" > "$nf"
+        # tab label written by /tab at <cwd>/.claude/sessions/<session_id>
+        tab=""
+        for base in "$cwd" "."; do
+          [[ -n "$sid" && -r "$base/.claude/sessions/$sid" ]] && { IFS= read -r tab < "$base/.claude/sessions/$sid"; break; }
+        done
+        # fallback to the zellij session name if /tab never wrote a sidecar
+        [[ -z "$tab" ]] && tab="${ZELLIJ_SESSION_NAME:-}"
+        msg="${tab:+[$tab] }Claude cache expires in ${left}s"
+        # iPhone push via Telegram bot. Config: ~/.config/cache-notify/env (mode
+        # 600) defining TG_TOKEN + TG_CHAT. Backgrounded + timeboxed so a slow
+        # network never stalls the 1s render. Inert until the file exists.
+        cfg="$HOME/.config/cache-notify/env"
+        if [[ -r "$cfg" ]]; then
+          ( . "$cfg"
+            [[ -n "$TG_TOKEN" && -n "$TG_CHAT" ]] && \
+              curl -s --max-time 5 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+                --data-urlencode chat_id="$TG_CHAT" --data-urlencode text="$msg" >/dev/null 2>&1 ) &
+        fi
+        # local Mac banner too (harmless when headless)
+        osascript -e "display notification \"$msg\" with title \"Claude cache\" sound name \"Submarine\"" >/dev/null 2>&1 &
+      fi
+    fi
   else
     cache="${dim}  ·  ⏱ cache cold${rst}"
   fi
