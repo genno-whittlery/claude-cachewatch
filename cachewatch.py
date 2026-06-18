@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -29,8 +30,12 @@ TTL = 300  # Anthropic prompt-cache TTL, seconds
 PROJECTS = Path.home() / ".claude" / "projects"
 TAIL_BYTES = 65536
 HOME_ENC = str(Path.home()).replace("/", "-")  # project dirs encode cwd with "/" -> "-"
+# session-wait-state.py drops "<sid>.waiting" sentinels here (same dir as the
+# statusline's cache-timer state): "wait" = turn done, "block" = on a prompt.
+STATE_DIR = Path(os.environ.get("TMPDIR", "/tmp").rstrip("/")) / f"claude-cache-timer-{os.getuid()}"
 
-GREEN, YELLOW, DIM, BOLD, RST = "\033[32m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"
+GREEN, YELLOW, RED, CYAN, DIM, BOLD, RST = (
+    "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[2m", "\033[1m", "\033[0m")
 
 
 def humanize(secs: float) -> str:
@@ -74,6 +79,23 @@ def session_label(path: Path) -> str:
     return "".join(c for c in label if c.isprintable())
 
 
+def wait_state(stem: str, mtime: float) -> str:
+    """'wait' / 'block' if the session is parked on the human, else ''.
+
+    The sentinel only counts when it's the session's most recent event: if the
+    transcript was written after it, work resumed (e.g. permission granted, which
+    fires no clear hook) and the flag is stale."""
+    sf = STATE_DIR / f"{stem}.waiting"
+    try:
+        st = sf.stat()
+        if st.st_mtime + 1 < mtime:
+            return ""  # API activity after the sentinel -> stale
+        first = sf.read_text().split()
+    except OSError:
+        return ""
+    return first[0] if first and first[0] in ("wait", "block") else ""
+
+
 def scan(max_age_s: float | None):
     now = time.time()
     best = {}  # same session can appear under two project-dir encodings (/Users vs /home symlink); keep freshest
@@ -94,15 +116,15 @@ def scan(max_age_s: float | None):
         if max_age_s is not None and idle > max_age_s:
             continue
         project = jsonl.parent.name.removeprefix(HOME_ENC).lstrip("-")
-        rows.append((idle, project, stem[:8], jsonl, mtime))
+        rows.append((idle, project, stem[:8], jsonl, mtime, wait_state(stem, mtime)))
     rows.sort(key=lambda r: r[0])
     return rows
 
 
 def render(rows, labels: dict) -> str:
-    out = [f"{BOLD}{'CACHE':<12} {'IDLE':>8}  {'PROJECT':<28} {'SESSION':<9} LAST PROMPT{RST}"]
-    warm = 0
-    for idle, project, sid, path, mtime in rows:
+    out = [f"{BOLD}{'CACHE':<12} {'IDLE':>8}  {'WAIT':<8} {'PROJECT':<28} {'SESSION':<9} LAST PROMPT{RST}"]
+    warm = waiting = 0
+    for idle, project, sid, path, mtime, wstate in rows:
         left = TTL - idle
         if left > 0:
             warm += 1
@@ -110,13 +132,21 @@ def render(rows, labels: dict) -> str:
             state = f"{col}⏱ {int(left):>3}s warm{RST}"
         else:
             state = f"{DIM}cold{RST}        "
+        if wstate == "wait":
+            waiting += 1
+            wcol = f"{CYAN}waiting {RST}"  # turn done, idle on your input
+        elif wstate == "block":
+            waiting += 1
+            wcol = f"{RED}blocked {RST}"   # on a permission prompt / idle nudge
+        else:
+            wcol = "        "
         cached = labels.get(path)
         if cached is None or cached[0] != mtime:  # re-read label when the transcript changed
             cached = (mtime, session_label(path))
             labels[path] = cached
         label = cached[1][:60]
-        out.append(f"{state} {humanize(idle):>8}  {project:<28.28} {sid:<9} {DIM}{label}{RST}")
-    out.append(f"{DIM}{warm} warm / {len(rows)} shown · TTL {TTL}s · mtime proxy (warm may be optimistic){RST}")
+        out.append(f"{state} {humanize(idle):>8}  {wcol} {project:<28.28} {sid:<9} {DIM}{label}{RST}")
+    out.append(f"{DIM}{warm} warm / {waiting} awaiting you / {len(rows)} shown · TTL {TTL}s · mtime proxy (warm may be optimistic){RST}")
     return "\n".join(out)
 
 
