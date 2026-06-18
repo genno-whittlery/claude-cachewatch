@@ -71,7 +71,9 @@ def resolve_cwd(payload: dict) -> str:
 
 
 def tab_label(cwd: str, sid: str) -> str:
-    """The /tab sidecar label for this session, if one was written."""
+    """The /tab sidecar label for this session, else the zellij session name
+    (the same fallback chain statusline.sh uses, so a session with no /tab
+    sidecar still shows its multiplexer name instead of nothing)."""
     for base in (cwd, "."):
         if not base:
             continue
@@ -81,7 +83,7 @@ def tab_label(cwd: str, sid: str) -> str:
                 return line[0].strip()
         except OSError:
             continue
-    return ""
+    return os.environ.get("ZELLIJ_SESSION_NAME", "").strip()
 
 
 def telegram_creds() -> tuple[str, str] | None:
