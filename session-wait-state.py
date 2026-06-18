@@ -41,6 +41,35 @@ def state_dir() -> Path:
     return Path(base) / f"claude-cache-timer-{os.getuid()}"
 
 
+def resolve_cwd(payload: dict) -> str:
+    """The session's working dir. Prefer the hook payload's cwd; fall back to the
+    last cwd recorded in the transcript (the Notification hook may omit cwd, and
+    decoding it from the project-dir name is ambiguous when the path has hyphens)."""
+    cwd = str(payload.get("cwd") or "").strip()
+    if cwd:
+        return cwd
+    tp = str(payload.get("transcript_path") or "").strip()
+    if not tp:
+        return ""
+    try:
+        with open(tp, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 65536))
+            tail = f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+    last = ""
+    for line in tail.splitlines():
+        i = line.find('"cwd":"')
+        if i == -1:
+            continue
+        j = line.find('"', i + 7)
+        if j != -1:
+            last = line[i + 7:j]
+    return last
+
+
 def tab_label(cwd: str, sid: str) -> str:
     """The /tab sidecar label for this session, if one was written."""
     for base in (cwd, "."):
@@ -82,7 +111,7 @@ def notify(state: str, sid: str, payload: dict) -> None:
     if creds is None:
         return
     token, chat = creds
-    tab = tab_label(str(payload.get("cwd") or ""), sid)
+    tab = tab_label(resolve_cwd(payload), sid)
     prefix = f"[{tab}] " if tab else ""
     if state == "block":
         detail = str(payload.get("message") or "").strip() or "blocked on a prompt"
