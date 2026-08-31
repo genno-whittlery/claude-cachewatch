@@ -1,0 +1,16 @@
+[package]
+name = "statusline-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust statusline (model + bar + % + ⏱ cache countdown) plus session-wait hook subcommands (wait/block/clear -> Telegram). Live in Claude Code. Render path stays side-effect-free; the 180s cache-expiry notify + banner + DB writes remain omitted."
+
+[dependencies]
+serde_json = "1.0"
+libc = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1

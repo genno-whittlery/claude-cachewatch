@@ -10,6 +10,8 @@ Anthropic's prompt cache has a **5-minute sliding TTL**. Every API call that reu
 
   `Fable 5  ████░░░░░░░░░░ 31%  ·  310k/1.0M  ·  ⏱ 287s`
 
+- **`statusline-rs/`** — the same status line as a single native binary (Rust). This is what the author now runs: the render path is side-effect-free — no `jq`, no subprocesses — so the 1 s refresh costs nothing, and the visuals have evolved a step past the bash script (8-cell bar, bare `287s` countdown, and an optional 5h/7d subscription-quota trailer). The binary also takes over `session-wait-state.py`'s job: `statusline-rs wait|block|clear` are the same three hook targets, Telegram pushes included. The bash + Python pieces below remain the zero-toolchain path.
+
 - **`cachewatch.py`** — scans every session on the machine and prints a warm/cold table, warmest first, so you know which conversation is cheap to reply to right now. The **WAIT** column flags sessions parked on you — `waiting` (the turn finished, it's your move) or `blocked` (stuck on a permission prompt) — so you can spot what needs attention without opening each one:
 
   ```
@@ -72,6 +74,29 @@ Then merge this key into `~/.claude/settings.json` (keep your existing settings 
 `refreshInterval` is the undersung half of this: by default the status line only re-renders on conversation events, so a countdown would freeze between messages. With it, the harness re-runs the script every second and the timer ticks while you think.
 
 If you run multiple `CLAUDE_CONFIG_DIR` profiles (separate logins), merge the `statusLine` block into **each profile's** `settings.json` — status-line config isn't shared between profiles. The script itself needs installing only once: the `command` path above is absolute, so every profile can point at the same file, and the timer's per-session state files don't care which profile a session belongs to.
+
+**Rust status line** (optional — needs a Rust toolchain; replaces both `statusline.sh` and `session-wait-state.py`):
+
+```bash
+cd statusline-rs && cargo build --release   # cargo test runs the suite
+mkdir -p ~/.claude/bin && cp target/release/statusline-rs ~/.claude/bin/
+```
+
+Point the `statusLine` command at the binary instead of the script (same merge rules as above):
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/bin/statusline-rs",
+    "refreshInterval": 1
+  }
+}
+```
+
+For the WAIT column and Telegram pushes, wire the same three hooks at the binary's subcommands instead of `session-wait-state.py`: `.../statusline-rs wait`, `.../statusline-rs block`, `.../statusline-rs clear` (absolute paths, as below). Same sentinel files, same `~/.config/cache-notify/env` config, same `CACHE_WAIT_NOTIFY=0` mute — the two implementations are drop-in interchangeable.
+
+The binary can also append a **5h/7d quota trailer** (`42%/18%  8:34/134:34` — used-% and H:MM-to-reset for the 5-hour and 7-day subscription windows). It reads `$TMPDIR/claude-usage-<uid>/<profile>.json` (profile = basename of `$CLAUDE_CONFIG_DIR`, default `.claude`), shape `{"5h":{"pct":42,"reset":<epoch>},"7d":{…},"at":<epoch>}`, which an out-of-band poller of the account-usage endpoint must maintain — none ships in this repo. The segment silently disappears when the file is missing, the poll is stale (>10 min), or both windows are past their reset, so without a poller you simply don't get the trailer.
 
 **Fleet view** (Python ≥ 3.9, no dependencies):
 
@@ -205,7 +230,7 @@ The **WAIT column** is a different kind of signal — not "is the cache warm" bu
 
 ## Requirements
 
-macOS or Linux. `jq` for the status line; Python ≥ 3.9 for `cachewatch.py` and `session-wait-state.py`; `curl` only for the optional Telegram push. Tested against Claude Code's statusline JSON as of June 2026 — field names may drift in future versions.
+macOS or Linux. `jq` for the bash status line (the Rust one needs only a stable Rust toolchain to build); Python ≥ 3.9 for `cachewatch.py` and `session-wait-state.py`; `curl` only for the optional Telegram push. Tested against Claude Code's statusline JSON as of June 2026 — field names may drift in future versions.
 
 ## License
 
